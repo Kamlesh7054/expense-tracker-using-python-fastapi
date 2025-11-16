@@ -26,7 +26,7 @@ while True:
     except Exception as error:
         print("Connecting to database failed")
         print("Error:", error)
-        time.sleep(1)
+        time.sleep(2)
 
 
 app = FastAPI()
@@ -52,7 +52,10 @@ def read_root():
 
 @app.get("/posts")# this endpoint will return a list of posts
 def get_posts():
-    return {"data": my_posts}
+    cursor.execute("""select * from posts""")# execute the SQL query to fetch all posts but not storing the result
+    posts = cursor.fetchall() # fetch all the results from the executed query
+    # print(posts)
+    return {"data": posts}
 
 # @app.post("/posts") # this endpoint will create a new post
 # def create_post(post: Post):
@@ -65,16 +68,18 @@ def get_posts():
 
 @app.post("/posts", status_code = status.HTTP_201_CREATED) # this endpoint will create a new post
 def create_post(post: Post):
-    post_dict = post.dict() # convert pydantic model to dictionary
-    post_dict['id'] = randrange(0, 1000000) # generate a random id for the post
-    my_posts.append(post_dict) # add the new post to the list of posts
-    return {"data": post_dict} # return the newly created post
+    cursor.execute("""insert into posts (title, content, published) values(%s, %s, %s) returning *""",
+                    (post.title, post.content, post.published))
+    new_post = cursor.fetchone() # fetch the newly created post
+    conn.commit() # commit the transaction to save changes to the database
+    return {"data": new_post} # return the newly created post
 
 
 #retriving one individual post by id
 @app.get("/posts/{id}") # path parameter
 def get_post(id: int):
-    post = find_post(id)
+    cursor.execute("""select * from posts where id = %s""", (str(id))) # execute the SQL query to fetch post by id
+    post = cursor.fetchone() # fetch the result from the executed query
     if not post:
         #handle error if post not found using HTTPException; 
         # you should import HTTPException and status from fastapi
@@ -84,11 +89,13 @@ def get_post(id: int):
 
 @app.delete("/posts/{id}", status_code=status.HTTP_204_NO_CONTENT) # delete a post by id
 def delete_post(id: int):
-    post = find_post(id)
-    if not post:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"post with id: {id} does not exist")
-    my_posts.remove(post)
-    # return {"message": "post deleted successfully"}
+    cursor.execute("""delete from posts where id = %s returning *""", (str(id)))
+    delete_post = cursor.fetchone()
+    conn.commit()
+
+    if delete_post == None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, 
+                            detail=f"post with id: {id} does not exist")
     return Response(status_code=status.HTTP_204_NO_CONTENT) # no content to return
 
 def find_post_index(id):
@@ -102,12 +109,14 @@ def find_post_index(id):
 
 @app.put("/posts/{id}") # update a post by id
 def update_post(id: int, post: Post):
-    index = find_post_index(id)
-    if index is None:
+    cursor.execute("""update posts set title = %s, content = %s, published = %s where id = %s
+                   returning *""", (post.title, post.content, post.published, str(id)))
+    updated_post = cursor.fetchone()
+    conn.commit()
+    
+    if updated_post == None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                              detail=f"post with id: {id} does not exist") 
-    post_dict = post.dict()
-    post_dict['id'] = id
-    my_posts[index] = post_dict
-    return {"data": post_dict}
+    
+    return {"data": updated_post}
     
