@@ -1,11 +1,22 @@
 from typing import Optional
-from fastapi import FastAPI, HTTPException, status, responses, Response
+from fastapi import FastAPI, HTTPException, status, Depends, Response
 from fastapi.params import Body
 from pydantic import BaseModel
 from random import randrange
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import time
+
+from sqlalchemy.orm import Session
+from . import models
+from .database import engine, get_db
+
+models.Base.metadata.create_all(bind=engine) # create the database tables
+
+
+
+app = FastAPI()
+
 
 class Post(BaseModel):
     title: str
@@ -21,7 +32,7 @@ while True:
         conn = psycopg2.connect(host='localhost', database='fastapi', user='postgres',
                                 password='1234', cursor_factory=RealDictCursor)
         cursor = conn.cursor() # create a cursor object to interact with the database
-        print("Database connection was successfull")
+        print("Database connection was successful")
         break
     except Exception as error:
         print("Connecting to database failed")
@@ -29,12 +40,13 @@ while True:
         time.sleep(2)
 
 
-app = FastAPI()
 '''.get() is http method for retrieving data from a server. there are multiple http
  methods like post, put, delete etc
  -> and "/" is the path for the root endpoint of the api
  -> if there two root endpoints it will give first one only
  '''
+
+
 
 # creating a list of posts as a sample database
 my_posts = [{"title": "title of post 1", "content": "content of post 1", "id": 1},
@@ -49,6 +61,16 @@ def find_post(id):
 @app.get("/") 
 def read_root():
     return {"message" : "Welcome to xyz_social_app!!!!"}
+
+
+
+
+@app.get("/sqlalchemy")
+def test_posts(db: Session = Depends(get_db)):
+    return {"data": "Success"}
+
+
+
 
 @app.get("/posts")# this endpoint will return a list of posts
 def get_posts():
@@ -78,7 +100,7 @@ def create_post(post: Post):
 #retriving one individual post by id
 @app.get("/posts/{id}") # path parameter
 def get_post(id: int):
-    cursor.execute("""select * from posts where id = %s""", (str(id))) # execute the SQL query to fetch post by id
+    cursor.execute("""select * from posts where id = %s""", (str(id),)) # execute the SQL query to fetch post by id
     post = cursor.fetchone() # fetch the result from the executed query
     if not post:
         #handle error if post not found using HTTPException; 
@@ -89,11 +111,11 @@ def get_post(id: int):
 
 @app.delete("/posts/{id}", status_code=status.HTTP_204_NO_CONTENT) # delete a post by id
 def delete_post(id: int):
-    cursor.execute("""delete from posts where id = %s returning *""", (str(id)))
+    cursor.execute("""delete from posts where id = %s returning *""", (str(id),))
     delete_post = cursor.fetchone()
     conn.commit()
 
-    if delete_post == None:
+    if delete_post is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, 
                             detail=f"post with id: {id} does not exist")
     return Response(status_code=status.HTTP_204_NO_CONTENT) # no content to return
@@ -114,7 +136,7 @@ def update_post(id: int, post: Post):
     updated_post = cursor.fetchone()
     conn.commit()
     
-    if updated_post == None:
+    if updated_post is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                              detail=f"post with id: {id} does not exist") 
     
